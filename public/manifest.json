@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Japanese Dual Subtitles for YouTube",
+  "version": "1.0.0",
+  "description": "Custom Japanese SRT Subtitle Overlay for YouTube videos.",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://youtube.com/*"
+  ],
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_title": "Japanese Subtitle Settings"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://youtube.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
