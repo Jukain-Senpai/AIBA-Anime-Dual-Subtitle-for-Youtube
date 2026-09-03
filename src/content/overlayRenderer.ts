@@ -1,4 +1,8 @@
 import { SubtitleSettings } from '../types/subtitle';
+import { JapaneseToken } from '../japanese/types';
+import { YouTubePlayerObserver } from './youtubePlayer';
+import { DictionaryService, DictionaryEntry } from '../japanese/dictionary';
+import { WordPopup } from './wordPopup';
 
 /**
  * Japanese Subtitle Overlay Renderer
@@ -7,12 +11,23 @@ import { SubtitleSettings } from '../types/subtitle';
 export class OverlayRenderer {
   private overlayElement: HTMLDivElement | null = null;
   private currentContainer: HTMLElement | null = null;
-  
-  // Caching to prevent DOM thrashing
   private renderedText: string | null = null;
   private renderedSettingsHash: string | null = null;
+  // Dependencies
+  private playerObserver: YouTubePlayerObserver | null = null;
+  private dictionaryService: DictionaryService | null = null;
+  private wordPopup: WordPopup | null = null;
 
   constructor() {}
+
+  /**
+   * Set external services required for interaction.
+   */
+  public setDependencies(observer: YouTubePlayerObserver, dictService: DictionaryService): void {
+    this.playerObserver = observer;
+    this.dictionaryService = dictService;
+    this.wordPopup = new WordPopup();
+  }
 
   public mount(container: HTMLElement): void {
     if (!container) return;
@@ -101,6 +116,64 @@ export class OverlayRenderer {
     // Ensure it's visible
     this.overlayElement.style.setProperty('display', 'block', 'important');
   }
+
+  /**
+   * Render tokenized subtitle with interactive spans.
+   */
+  public renderTokens(tokens: JapaneseToken[] | null, enabled: boolean, settings: SubtitleSettings): void {
+    if (!this.overlayElement) return;
+
+    if (!enabled || !tokens) {
+      if (this.renderedText !== null) {
+        this.overlayElement.style.setProperty('display', 'none', 'important');
+        this.renderedText = null;
+      }
+      return;
+    }
+
+    const settingsHash = JSON.stringify(settings);
+    const textChanged = true; // tokens always re-render for simplicity
+    const settingsChanged = this.renderedSettingsHash !== settingsHash;
+
+    if (!settingsChanged && !textChanged) {
+      return;
+    }
+
+    // Build HTML with spans
+    const html = tokens.map((t, i) => {
+      const safeSurface = t.surface.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<span class="ja-token" data-base="${t.baseForm}" data-reading="${t.reading}" data-index="${i}">${safeSurface}</span>`;
+    }).join('');
+    this.overlayElement.innerHTML = html;
+    this.renderedText = html;
+
+    if (settingsChanged) {
+      this.applySettings(settings);
+      this.renderedSettingsHash = settingsHash;
+    }
+
+    // Attach click handler if not already
+    this.overlayElement.removeEventListener('click', this.handleTokenClick);
+    this.overlayElement.addEventListener('click', this.handleTokenClick);
+
+    this.overlayElement.style.setProperty('display', 'block', 'important');
+  }
+
+  private handleTokenClick = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (!target || !target.classList.contains('ja-token')) return;
+    const base = target.getAttribute('data-base') || '';
+    if (this.playerObserver) {
+      this.playerObserver.pause();
+    }
+    if (this.dictionaryService) {
+      const entry = this.dictionaryService.lookup(base);
+      if (entry && this.wordPopup) {
+        const rect = target.getBoundingClientRect();
+        this.wordPopup.show(entry, rect.left + rect.width / 2, rect.top);
+      }
+    }
+  };
 
   private applySettings(settings: SubtitleSettings): void {
     if (!this.overlayElement) return;
