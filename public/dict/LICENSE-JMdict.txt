@@ -1,0 +1,6 @@
+JMdict-simplified is derived from the JMdict dictionary files.
+
+This dictionary relies on the JMdict dictionary files, which are the property of the Electronic Dictionary Research and Development Group, and are used in conformance with the Group's licence (https://www.edrdg.org/edrdg/licence.html).
+
+Creative Commons Attribution-ShareAlike 3.0 Unported
+Creative Commons Attribution-ShareAlike 4.0 International

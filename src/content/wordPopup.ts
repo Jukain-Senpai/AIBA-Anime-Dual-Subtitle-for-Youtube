@@ -56,21 +56,73 @@ export class WordPopup {
     document.addEventListener('keydown', this.escapeKeyHandler);
   }
 
-  /** Show the popup at (x, y) screen coordinates. */
-  public show(entry: { expression: string; reading?: string; meanings: string[] }, x: number, y: number): void {
+  public show(
+    entry: { expression: string; reading?: string; meanings: string[]; partOfSpeech?: string[] } | null,
+    surface: string,
+    x: number,
+    y: number,
+    isLoading: boolean = false
+  ): void {
     if (!this.popupEl) return;
-    const { expression, reading, meanings } = entry;
-    const html = `
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-        <div style="font-size: 16px;">
-          <strong>${expression}</strong>${reading ? ` <span style="color: #bbb;">(${reading})</span>` : ''}
+    
+    let html = '';
+    
+    if (isLoading) {
+      html = `
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+          <div style="font-size: 16px;">
+            <strong>${surface}</strong>
+          </div>
+          <div class="ja-word-popup-close" style="cursor: pointer; padding: 0 4px; font-size: 16px; line-height: 1; color: #999;">&times;</div>
         </div>
-        <div class="ja-word-popup-close" style="cursor: pointer; padding: 0 4px; font-size: 16px; line-height: 1; color: #999;">&times;</div>
-      </div>
-      <div style="font-size: 14px; line-height: 1.4;">
-        ${meanings.map(m => `<div><span style="color: #888;">·</span> ${m}</div>`).join('')}
-      </div>
-    `;
+        <div style="font-size: 14px; line-height: 1.4; color: #aaa;">
+          Dictionary loading...
+        </div>
+      `;
+    } else if (!entry) {
+      html = `
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+          <div style="font-size: 16px;">
+            <strong>${surface}</strong>
+          </div>
+          <div class="ja-word-popup-close" style="cursor: pointer; padding: 0 4px; font-size: 16px; line-height: 1; color: #999;">&times;</div>
+        </div>
+        <div style="font-size: 14px; line-height: 1.4; color: #aaa;">
+          No dictionary entry found.
+        </div>
+      `;
+    } else {
+      const { expression, reading, meanings, partOfSpeech } = entry;
+      const isInflected = surface !== expression && surface !== reading;
+      
+      const posHtml = partOfSpeech && partOfSpeech.length > 0
+        ? `<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #9cdcfe; margin-bottom: 6px;">${partOfSpeech.join(', ')}</div>`
+        : '';
+        
+      const meaningsList = meanings.slice(0, 6).map((m, i) => 
+        `<div style="margin-bottom: 4px;"><span style="color: #888; font-size: 12px; margin-right: 4px;">${i + 1}.</span>${m}</div>`
+      ).join('');
+      
+      const moreText = meanings.length > 6 ? `<div style="color: #666; font-size: 12px; margin-top: 4px;">+ ${meanings.length - 6} more</div>` : '';
+
+      html = `
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+          <div>
+            <div style="font-size: 18px; font-weight: 600; line-height: 1.2;">
+              ${isInflected ? `${surface} <span style="font-size: 12px; font-weight: normal; color: #aaa;">(Base: ${expression})</span>` : expression}
+            </div>
+            ${reading ? `<div style="font-size: 13px; color: #bbb; margin-top: 2px;">${reading}</div>` : ''}
+          </div>
+          <div class="ja-word-popup-close" style="cursor: pointer; padding: 0 4px; font-size: 18px; line-height: 1; color: #999;">&times;</div>
+        </div>
+        ${posHtml}
+        <div style="font-size: 14px; line-height: 1.4;">
+          ${meaningsList}
+          ${moreText}
+        </div>
+      `;
+    }
+    
     this.popupEl.innerHTML = html;
 
     const closeBtn = this.popupEl.querySelector('.ja-word-popup-close');

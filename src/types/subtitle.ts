@@ -18,6 +18,7 @@ export interface SubtitleSettings {
   outlineSize: number;
   lineSpacing: number;
   offset: number;
+  showFurigana: boolean;
 }
 
 export interface SubtitleState {

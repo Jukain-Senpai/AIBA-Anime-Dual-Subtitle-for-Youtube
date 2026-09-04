@@ -15,6 +15,7 @@ const DEFAULT_SETTINGS: SubtitleSettings = {
   outlineSize: 2,
   lineSpacing: 1.4,
   offset: 0,
+  showFurigana: true,
 };
 
 export const Popup: React.FC = () => {
@@ -301,6 +302,17 @@ export const Popup: React.FC = () => {
                 />
               </div>
             )}
+
+            <div className="setting-row">
+              <label className="checkbox-label">
+                <input 
+                  type="checkbox" 
+                  checked={state.settings.showFurigana}
+                  onChange={(e) => handleSettingChange('showFurigana', e.target.checked)}
+                />
+                Show Furigana (Reading)
+              </label>
+            </div>
           </div>
         </div>
       )}

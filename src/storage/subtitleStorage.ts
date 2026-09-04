@@ -17,6 +17,7 @@ const DEFAULT_STATE: SubtitleState = {
     outlineSize: 2,
     lineSpacing: 1.4,
     offset: 0,
+    showFurigana: true,
   }
 };
 

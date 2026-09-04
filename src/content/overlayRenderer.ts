@@ -3,6 +3,7 @@ import { JapaneseToken } from '../japanese/types';
 import { YouTubePlayerObserver } from './youtubePlayer';
 import { DictionaryService, DictionaryEntry } from '../japanese/dictionary';
 import { WordPopup } from './wordPopup';
+import { hasKanji, katakanaToHiragana } from '../japanese/furigana';
 
 /**
  * Japanese Subtitle Overlay Renderer
@@ -88,6 +89,18 @@ export class OverlayRenderer {
           background: rgba(255, 255, 100, 0.3);
           border-radius: 3px;
         }
+        ruby.ja-token {
+          ruby-position: over;
+        }
+        ruby.ja-token rt {
+          font-size: 0.5em;
+          opacity: 0.85;
+          user-select: none;
+          pointer-events: none;
+        }
+        ruby.ja-token:hover rt {
+          opacity: 1;
+        }
       `;
       document.head.appendChild(style);
     }
@@ -165,10 +178,20 @@ export class OverlayRenderer {
     // Build HTML with spans (skip interactive wrapping for punctuation)
     const html = tokens.map((t, i) => {
       const safeSurface = t.surface.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      
       if (isPunctuation(t.surface, t.partOfSpeech)) {
         return `<span class="ja-punct">${safeSurface}</span>`;
       }
-      return `<span class="ja-token" data-base="${t.baseForm}" data-reading="${t.reading}" data-index="${i}">${safeSurface}</span>`;
+      
+      const isFuriganaEnabled = settings.showFurigana;
+      const shouldShowFurigana = isFuriganaEnabled && hasKanji(t.surface) && t.reading && t.reading.trim() !== '';
+      
+      if (shouldShowFurigana) {
+        const hiraganaReading = katakanaToHiragana(t.reading);
+        return `<ruby class="ja-token" data-base="${t.baseForm}" data-reading="${t.reading}" data-surface="${t.surface}" data-index="${i}">${safeSurface}<rt>${hiraganaReading}</rt></ruby>`;
+      }
+      
+      return `<span class="ja-token" data-base="${t.baseForm}" data-reading="${t.reading}" data-surface="${t.surface}" data-index="${i}">${safeSurface}</span>`;
     }).join('');
     this.overlayElement.innerHTML = html;
     this.renderedText = html;
@@ -185,25 +208,39 @@ export class OverlayRenderer {
     this.overlayElement.style.setProperty('display', 'block', 'important');
   }
 
-  private handleTokenClick = (e: MouseEvent) => {
-    const target = e.target as HTMLElement;
-    if (!target || !target.classList.contains('ja-token')) return;
+  private handleTokenClick = async (e: MouseEvent) => {
+    const target = (e.target as HTMLElement).closest('.ja-token') as HTMLElement;
+    if (!target) return;
     const base = target.getAttribute('data-base') || '';
     const reading = target.getAttribute('data-reading') || '';
+    const surface = target.getAttribute('data-surface') || target.innerText.split('\n')[0] || base;
     if (!base.trim()) return;
 
     if (this.playerObserver) {
       this.playerObserver.pause();
     }
+    
     if (this.dictionaryService && this.wordPopup) {
-      const entry = this.dictionaryService.lookup(base) || (reading ? this.dictionaryService.lookup(reading) : null);
       const rect = target.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top;
+
+      if (!this.dictionaryService.isLoaded()) {
+        // Show loading state immediately
+        this.wordPopup.show(null, surface, x, y, true);
+        await this.dictionaryService.ensureLoaded();
+      }
+
+      const entry = this.dictionaryService.lookup(base) || (reading ? this.dictionaryService.lookup(reading) : null);
+      
       this.wordPopup.show(
         entry
           ? { ...entry, reading: entry.reading || reading || undefined }
-          : { expression: base, reading: reading || undefined, meanings: ['No dictionary entry found.'] },
-        rect.left + rect.width / 2,
-        rect.top
+          : null,
+        surface,
+        x,
+        y,
+        false
       );
     }
   };

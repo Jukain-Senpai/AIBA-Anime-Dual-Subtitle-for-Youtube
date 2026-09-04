@@ -20,6 +20,7 @@ const defaultSettings: SubtitleSettings = {
   outlineSize: 2,
   lineSpacing: 1.4,
   offset: 0,
+  showFurigana: true,
 };
 
 let currentState: SubtitleState = {
