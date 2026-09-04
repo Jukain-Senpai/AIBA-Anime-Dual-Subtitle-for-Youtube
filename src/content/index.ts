@@ -3,6 +3,9 @@ import { OverlayRenderer } from './overlayRenderer';
 import { findActiveSubtitle } from './subtitleEngine';
 import { getSubtitleState, onSubtitleStateChange } from '../storage/subtitleStorage';
 import { SubtitleState, SubtitleSettings } from '../types/subtitle';
+import { TokenizerService } from '../japanese/tokenizer';
+import { DictionaryService } from '../japanese/dictionary';
+import { JapaneseToken } from '../japanese/types';
 
 console.log('[Japanese Dual Subtitle] Content script loaded on YouTube.');
 
@@ -28,6 +31,18 @@ let currentState: SubtitleState = {
 
 const playerObserver = new YouTubePlayerObserver();
 const overlayRenderer = new OverlayRenderer();
+const tokenizerService = new TokenizerService();
+const dictionaryService = new DictionaryService();
+
+// Set dependencies for interactive overlay
+overlayRenderer.setDependencies(playerObserver, dictionaryService);
+
+// Pre-init tokenizer in the background
+tokenizerService.init().catch(e => console.warn('[Japanese Dual Subtitle] Tokenizer pre-init failed', e));
+
+// State for rendering and caching
+const tokenCache = new Map<string, JapaneseToken[]>();
+let currentRenderingText: string | null = null;
 
 // Load initial subtitle state from chrome.storage
 getSubtitleState().then((state) => {
@@ -74,8 +89,35 @@ playerObserver.onTimeUpdate((currentTime) => {
   updateOverlay();
 });
 
+function createFallbackTokens(text: string): JapaneseToken[] {
+  if (typeof Intl !== 'undefined' && (Intl as any).Segmenter) {
+    try {
+      const segmenter = new (Intl as any).Segmenter('ja', { granularity: 'word' });
+      const segments = Array.from(segmenter.segment(text)) as Array<{ segment: string; index: number }>;
+      return segments.map((seg) => ({
+        surface: seg.segment,
+        reading: '',
+        baseForm: seg.segment,
+        partOfSpeech: 'Unknown',
+        startIndex: seg.index,
+        endIndex: seg.index + seg.segment.length,
+      }));
+    } catch (e) {
+      console.warn('[Japanese Dual Subtitle] Intl.Segmenter fallback failed:', e);
+    }
+  }
+  return text.split('').map((char, index) => ({
+    surface: char,
+    reading: '',
+    baseForm: char,
+    partOfSpeech: 'Unknown',
+    startIndex: index,
+    endIndex: index + 1,
+  }));
+}
+
 function updateOverlay(): void {
-  const container = playerObserver.getVideoContainer();
+  const container = playerObserver.getContainer();
   if (container) {
     overlayRenderer.mount(container);
   } else {
@@ -90,15 +132,43 @@ function updateOverlay(): void {
     currentState.settings.offset
   );
 
-  // Too spammy if left in production, but good for debugging initially
-  // if (activeSub) {
-  //   console.log(`[Japanese Dual Subtitle] Match at ${currentTime.toFixed(1)}s: "${activeSub.text}"`);
-  // }
+  const enabled = currentState.enabled && currentState.subtitles.length > 0;
+  const text = activeSub ? activeSub.text : null;
 
-  overlayRenderer.render(
-    activeSub ? activeSub.text : null,
-    currentState.enabled && currentState.subtitles.length > 0,
-    currentState.settings
-  );
+  if (!enabled || !text) {
+    currentRenderingText = null;
+    overlayRenderer.renderTokens(null, enabled, currentState.settings);
+    return;
+  }
+
+  if (currentRenderingText === text) {
+    // Already processing or rendering this text, or tokenizer is working on it.
+    // If settings changed, we should ideally re-render. Let's pass the cache if available.
+    if (tokenCache.has(text)) {
+      overlayRenderer.renderTokens(tokenCache.get(text)!, enabled, currentState.settings);
+    }
+    return;
+  }
+
+  currentRenderingText = text;
+
+  if (tokenCache.has(text)) {
+    overlayRenderer.renderTokens(tokenCache.get(text)!, enabled, currentState.settings);
+  } else {
+    // Asynchronously tokenize the new subtitle text
+    tokenizerService.tokenize(text).then((tokens) => {
+      tokenCache.set(text, tokens);
+      // Ensure the active text hasn't changed (e.g. from rapid seeking) while we were tokenizing
+      if (currentRenderingText === text) {
+        overlayRenderer.renderTokens(tokens, enabled, currentState.settings);
+      }
+    }).catch((e) => {
+      console.warn('[Japanese Dual Subtitle] Tokenization failed, using segmenter fallback:', e);
+      if (currentRenderingText === text) {
+        const fallbackTokens = createFallbackTokens(text);
+        tokenCache.set(text, fallbackTokens);
+        overlayRenderer.renderTokens(fallbackTokens, enabled, currentState.settings);
+      }
+    });
+  }
 }
-

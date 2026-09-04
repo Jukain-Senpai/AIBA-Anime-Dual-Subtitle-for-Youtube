@@ -74,6 +74,24 @@ export class OverlayRenderer {
     div.style.setProperty('transform', 'translateX(-50%)', 'important');
     div.style.setProperty('bottom', '10%', 'important');
 
+    // Inject styles for tokens if not already present
+    if (!document.getElementById('ja-dual-subtitle-style')) {
+      const style = document.createElement('style');
+      style.id = 'ja-dual-subtitle-style';
+      style.textContent = `
+        .ja-token {
+          pointer-events: auto;
+          cursor: pointer;
+          transition: background 0.15s ease;
+        }
+        .ja-token:hover {
+          background: rgba(255, 255, 100, 0.3);
+          border-radius: 3px;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
     return div;
   }
 
@@ -139,9 +157,17 @@ export class OverlayRenderer {
       return;
     }
 
-    // Build HTML with spans
+    const isPunctuation = (surface: string, pos?: string) => {
+      if (pos === '記号') return true;
+      return /^[、。！？「」『』（）［］【】…—\s.,!?:;'"\-_=+\/\\|~`@#$%^&*()]+$/.test(surface);
+    };
+
+    // Build HTML with spans (skip interactive wrapping for punctuation)
     const html = tokens.map((t, i) => {
       const safeSurface = t.surface.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      if (isPunctuation(t.surface, t.partOfSpeech)) {
+        return `<span class="ja-punct">${safeSurface}</span>`;
+      }
       return `<span class="ja-token" data-base="${t.baseForm}" data-reading="${t.reading}" data-index="${i}">${safeSurface}</span>`;
     }).join('');
     this.overlayElement.innerHTML = html;
@@ -163,15 +189,22 @@ export class OverlayRenderer {
     const target = e.target as HTMLElement;
     if (!target || !target.classList.contains('ja-token')) return;
     const base = target.getAttribute('data-base') || '';
+    const reading = target.getAttribute('data-reading') || '';
+    if (!base.trim()) return;
+
     if (this.playerObserver) {
       this.playerObserver.pause();
     }
-    if (this.dictionaryService) {
-      const entry = this.dictionaryService.lookup(base);
-      if (entry && this.wordPopup) {
-        const rect = target.getBoundingClientRect();
-        this.wordPopup.show(entry, rect.left + rect.width / 2, rect.top);
-      }
+    if (this.dictionaryService && this.wordPopup) {
+      const entry = this.dictionaryService.lookup(base) || (reading ? this.dictionaryService.lookup(reading) : null);
+      const rect = target.getBoundingClientRect();
+      this.wordPopup.show(
+        entry
+          ? { ...entry, reading: entry.reading || reading || undefined }
+          : { expression: base, reading: reading || undefined, meanings: ['No dictionary entry found.'] },
+        rect.left + rect.width / 2,
+        rect.top
+      );
     }
   };
 

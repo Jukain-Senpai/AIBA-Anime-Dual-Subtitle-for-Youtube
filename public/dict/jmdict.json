@@ -1,0 +1,19 @@
+[
+  { "expression": "行く", "reading": "いく", "meanings": ["to go", "to move (towards)", "to head (towards)", "to leave (for)"] },
+  { "expression": "食べる", "reading": "たべる", "meanings": ["to eat", "to live on (e.g. a salary)"] },
+  { "expression": "猫", "reading": "ねこ", "meanings": ["cat"] },
+  { "expression": "好き", "reading": "すき", "meanings": ["liked", "well-liked", "favourite", "in love (with)"] },
+  { "expression": "です", "reading": "です", "meanings": ["be", "is"] },
+  { "expression": "私", "reading": "わたし", "meanings": ["I", "me"] },
+  { "expression": "何", "reading": "なに", "meanings": ["what"] },
+  { "expression": "ここ", "reading": "ここ", "meanings": ["here", "this place"] },
+  { "expression": "見る", "reading": "みる", "meanings": ["to see", "to look", "to watch"] },
+  { "expression": "来る", "reading": "くる", "meanings": ["to come (spatially or temporally)", "to approach", "to arrive"] },
+  { "expression": "可愛い", "reading": "かわいい", "meanings": ["cute", "adorable", "charming"] },
+  { "expression": "すごい", "reading": "すごい", "meanings": ["terrible", "dreadful", "amazing (e.g. of strength)", "great (e.g. of skills)", "wonderful"] },
+  { "expression": "こんにちは", "reading": "こんにちは", "meanings": ["hello", "good day", "good afternoon"] },
+  { "expression": "今日", "reading": "きょう", "meanings": ["today", "this day"] },
+  { "expression": "明日", "reading": "あした", "meanings": ["tomorrow"] },
+  { "expression": "昨日", "reading": "きのう", "meanings": ["yesterday"] },
+  { "expression": "世界", "reading": "せかい", "meanings": ["the world", "society", "the universe"] }
+]
