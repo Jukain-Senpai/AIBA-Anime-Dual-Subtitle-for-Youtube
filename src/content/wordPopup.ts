@@ -1,3 +1,7 @@
+import type { DictionaryEntry } from '../japanese/types';
+import type { JLPTLevel } from '../japanese/jlpt';
+import { JLPT_COLORS } from '../japanese/jlptColors.ts';
+
 /**
  * Simple floating popup for dictionary entries.
  * Used in the content script overlay. It creates a single DOM element that is reused.
@@ -41,7 +45,7 @@ export class WordPopup {
       const target = e.target as HTMLElement;
       // Hide popup if clicked outside of popup AND outside of token
       if (this.popupEl && this.popupEl.style.display === 'block') {
-        if (!this.popupEl.contains(target) && !target.classList.contains('ja-token')) {
+        if (!this.popupEl.contains(target) && !target.closest('.ja-token')) {
           this.hide();
         }
       }
@@ -56,79 +60,85 @@ export class WordPopup {
     document.addEventListener('keydown', this.escapeKeyHandler);
   }
 
+  private element<K extends keyof HTMLElementTagNameMap>(
+    tag: K,
+    styles: string,
+    text?: string,
+  ): HTMLElementTagNameMap[K] {
+    const element = document.createElement(tag);
+    element.style.cssText = styles;
+    if (text !== undefined) element.textContent = text;
+    return element;
+  }
+
+  public isVisible(): boolean {
+    return this.popupEl?.style.display === 'block';
+  }
+
   public show(
-    entry: { expression: string; reading?: string; meanings: string[]; partOfSpeech?: string[] } | null,
+    entry: DictionaryEntry | null,
     surface: string,
     x: number,
     y: number,
-    isLoading: boolean = false
+    isLoading: boolean = false,
+    jlptLevel: JLPTLevel = null,
   ): void {
     if (!this.popupEl) return;
-    
-    let html = '';
-    
+
+    const header = this.element('div', 'display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px');
+    const heading = this.element('div', 'min-width:0');
+    const title = this.element('div', `display:flex;align-items:center;flex-wrap:wrap;gap:7px;font-size:${entry && !isLoading ? 18 : 16}px;font-weight:600;line-height:1.2`);
+    const displayedWord = entry && !isLoading && surface === entry.expression ? entry.expression : surface;
+    title.appendChild(this.element('strong', '', displayedWord));
+
+    if (entry && !isLoading && surface !== entry.expression && surface !== entry.reading) {
+      title.appendChild(this.element('span', 'font-size:12px;font-weight:normal;color:#aaa', `(Base: ${entry.expression})`));
+    }
+    if (jlptLevel) {
+      const badge = this.element('span', 'font-size:11px;font-weight:700;line-height:1;padding:4px 6px;border-radius:4px;color:#101828', jlptLevel);
+      badge.className = 'ja-word-popup-jlpt';
+      badge.style.backgroundColor = JLPT_COLORS[jlptLevel];
+      badge.title = 'Approximate JLPT vocabulary level';
+      title.appendChild(badge);
+    }
+    heading.appendChild(title);
+
+    if (entry?.reading && !isLoading) {
+      heading.appendChild(this.element('div', 'font-size:13px;color:#bbb;margin-top:2px', entry.reading));
+    }
+    header.appendChild(heading);
+
+    const closeBtn = this.element('button', 'cursor:pointer;padding:0 4px;font-size:18px;line-height:1;color:#999;background:none;border:0', '×');
+    closeBtn.type = 'button';
+    closeBtn.className = 'ja-word-popup-close';
+    closeBtn.setAttribute('aria-label', 'Close word popup');
+    closeBtn.addEventListener('click', () => this.hide());
+    header.appendChild(closeBtn);
+
+    const content = this.element('div', 'font-size:14px;line-height:1.4');
     if (isLoading) {
-      html = `
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-          <div style="font-size: 16px;">
-            <strong>${surface}</strong>
-          </div>
-          <div class="ja-word-popup-close" style="cursor: pointer; padding: 0 4px; font-size: 16px; line-height: 1; color: #999;">&times;</div>
-        </div>
-        <div style="font-size: 14px; line-height: 1.4; color: #aaa;">
-          Dictionary loading...
-        </div>
-      `;
+      content.textContent = 'Dictionary loading...';
+      content.style.color = '#aaa';
     } else if (!entry) {
-      html = `
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-          <div style="font-size: 16px;">
-            <strong>${surface}</strong>
-          </div>
-          <div class="ja-word-popup-close" style="cursor: pointer; padding: 0 4px; font-size: 16px; line-height: 1; color: #999;">&times;</div>
-        </div>
-        <div style="font-size: 14px; line-height: 1.4; color: #aaa;">
-          No dictionary entry found.
-        </div>
-      `;
+      content.textContent = 'No dictionary entry found.';
+      content.style.color = '#aaa';
     } else {
-      const { expression, reading, meanings, partOfSpeech } = entry;
-      const isInflected = surface !== expression && surface !== reading;
-      
-      const posHtml = partOfSpeech && partOfSpeech.length > 0
-        ? `<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #9cdcfe; margin-bottom: 6px;">${partOfSpeech.join(', ')}</div>`
-        : '';
-        
-      const meaningsList = meanings.slice(0, 6).map((m, i) => 
-        `<div style="margin-bottom: 4px;"><span style="color: #888; font-size: 12px; margin-right: 4px;">${i + 1}.</span>${m}</div>`
-      ).join('');
-      
-      const moreText = meanings.length > 6 ? `<div style="color: #666; font-size: 12px; margin-top: 4px;">+ ${meanings.length - 6} more</div>` : '';
-
-      html = `
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-          <div>
-            <div style="font-size: 18px; font-weight: 600; line-height: 1.2;">
-              ${isInflected ? `${surface} <span style="font-size: 12px; font-weight: normal; color: #aaa;">(Base: ${expression})</span>` : expression}
-            </div>
-            ${reading ? `<div style="font-size: 13px; color: #bbb; margin-top: 2px;">${reading}</div>` : ''}
-          </div>
-          <div class="ja-word-popup-close" style="cursor: pointer; padding: 0 4px; font-size: 18px; line-height: 1; color: #999;">&times;</div>
-        </div>
-        ${posHtml}
-        <div style="font-size: 14px; line-height: 1.4;">
-          ${meaningsList}
-          ${moreText}
-        </div>
-      `;
+      if (entry.partOfSpeech?.length) {
+        const pos = this.element('div', 'font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#9cdcfe;margin-bottom:6px', entry.partOfSpeech.join(', '));
+        content.appendChild(pos);
+      }
+      entry.meanings.slice(0, 6).forEach((meaning, index) => {
+        const row = this.element('div', 'margin-bottom:4px');
+        row.appendChild(this.element('span', 'color:#888;font-size:12px;margin-right:4px', `${index + 1}.`));
+        row.appendChild(document.createTextNode(meaning));
+        content.appendChild(row);
+      });
+      if (entry.meanings.length > 6) {
+        content.appendChild(this.element('div', 'color:#666;font-size:12px;margin-top:4px', `+ ${entry.meanings.length - 6} more`));
+      }
     }
-    
-    this.popupEl.innerHTML = html;
 
-    const closeBtn = this.popupEl.querySelector('.ja-word-popup-close');
-    if (closeBtn) {
-      closeBtn.addEventListener('click', () => this.hide());
-    }
+    this.popupEl.replaceChildren(header, content);
 
     // Reset styles for measurement
     this.popupEl.style.display = 'block';

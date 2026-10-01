@@ -1,4 +1,4 @@
-import { SubtitleState } from '../types/subtitle';
+import type { SubtitleState } from '../types/subtitle';
 
 const STORAGE_KEY = 'ja_dual_subtitle_state';
 
@@ -18,8 +18,20 @@ const DEFAULT_STATE: SubtitleState = {
     lineSpacing: 1.4,
     offset: 0,
     showFurigana: true,
+    showJLPTColors: false,
   }
 };
+
+function mergeState(saved: Partial<SubtitleState> | null | undefined): SubtitleState {
+  return {
+    ...DEFAULT_STATE,
+    ...saved,
+    settings: {
+      ...DEFAULT_STATE.settings,
+      ...(saved?.settings || {}),
+    },
+  };
+}
 
 /**
  * Retrieves current SubtitleState from chrome.storage.local
@@ -35,14 +47,7 @@ export async function getSubtitleState(): Promise<SubtitleState> {
       if (result && result[STORAGE_KEY]) {
         // Deep merge settings to ensure new defaults are applied if user has old storage format
         const loadedState = result[STORAGE_KEY];
-        resolve({
-          ...DEFAULT_STATE,
-          ...loadedState,
-          settings: {
-            ...DEFAULT_STATE.settings,
-            ...(loadedState.settings || {})
-          }
-        });
+        resolve(mergeState(loadedState));
       } else {
         resolve(DEFAULT_STATE);
       }
@@ -55,10 +60,7 @@ export async function getSubtitleState(): Promise<SubtitleState> {
  */
 export async function saveSubtitleState(update: Partial<SubtitleState>): Promise<SubtitleState> {
   const currentState = await getSubtitleState();
-  const newState: SubtitleState = { ...currentState, ...update };
-
-  // Note: if update contains partial settings, caller should manually merge them before calling saveSubtitleState,
-  // or we can handle it here, but spreading update is enough if caller provides full settings object.
+  const newState: SubtitleState = mergeState({ ...currentState, ...update });
 
   return new Promise((resolve) => {
     if (typeof chrome === 'undefined' || !chrome.storage) {
@@ -93,7 +95,7 @@ export function onSubtitleStateChange(callback: (state: SubtitleState) => void):
   const listener = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
     if (areaName === 'local' && changes[STORAGE_KEY]) {
       const newValue = changes[STORAGE_KEY].newValue || DEFAULT_STATE;
-      callback({ ...DEFAULT_STATE, ...newValue });
+      callback(mergeState(newValue));
     }
   };
 

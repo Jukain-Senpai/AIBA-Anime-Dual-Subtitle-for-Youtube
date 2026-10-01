@@ -1,4 +1,4 @@
-import { DictionaryEntry } from './types';
+import type { DictionaryEntry } from './types';
 
 /**
  * Dictionary service for MVP 4.

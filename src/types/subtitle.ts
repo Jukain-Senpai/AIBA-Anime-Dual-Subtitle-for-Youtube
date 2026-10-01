@@ -19,6 +19,7 @@ export interface SubtitleSettings {
   lineSpacing: number;
   offset: number;
   showFurigana: boolean;
+  showJLPTColors: boolean;
 }
 
 export interface SubtitleState {

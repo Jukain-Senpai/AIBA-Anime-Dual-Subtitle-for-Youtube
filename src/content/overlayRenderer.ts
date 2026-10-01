@@ -1,9 +1,15 @@
-import { SubtitleSettings } from '../types/subtitle';
-import { JapaneseToken } from '../japanese/types';
-import { YouTubePlayerObserver } from './youtubePlayer';
-import { DictionaryService, DictionaryEntry } from '../japanese/dictionary';
-import { WordPopup } from './wordPopup';
-import { hasKanji, katakanaToHiragana } from '../japanese/furigana';
+import type { SubtitleSettings } from '../types/subtitle';
+import type { JapaneseToken } from '../japanese/types';
+import type { YouTubePlayerObserver } from './youtubePlayer';
+import type { DictionaryService } from '../japanese/dictionary';
+import { WordPopup } from './wordPopup.ts';
+import { hasKanji, katakanaToHiragana } from '../japanese/furigana.ts';
+import { JLPT_COLORS } from '../japanese/jlptColors.ts';
+import type { JLPTService, JLPTLevel } from '../japanese/jlpt';
+
+function isPunctuation(surface: string, partOfSpeech: string): boolean {
+  return partOfSpeech === '記号' || /^[\p{P}\p{S}\s]+$/u.test(surface);
+}
 
 /**
  * Japanese Subtitle Overlay Renderer
@@ -14,19 +20,27 @@ export class OverlayRenderer {
   private currentContainer: HTMLElement | null = null;
   private renderedText: string | null = null;
   private renderedSettingsHash: string | null = null;
+  private renderedTokens: JapaneseToken[] | null = null;
   // Dependencies
   private playerObserver: YouTubePlayerObserver | null = null;
   private dictionaryService: DictionaryService | null = null;
+  private jlptService: JLPTService | null = null;
   private wordPopup: WordPopup | null = null;
+  private popupRequestId = 0;
 
   constructor() {}
 
   /**
    * Set external services required for interaction.
    */
-  public setDependencies(observer: YouTubePlayerObserver, dictService: DictionaryService): void {
+  public setDependencies(
+    observer: YouTubePlayerObserver,
+    dictService: DictionaryService,
+    jlptService: JLPTService,
+  ): void {
     this.playerObserver = observer;
     this.dictionaryService = dictService;
+    this.jlptService = jlptService;
     this.wordPopup = new WordPopup();
   }
 
@@ -35,6 +49,8 @@ export class OverlayRenderer {
 
     if (this.currentContainer !== container) {
       console.log(`[Japanese Dual Subtitle] Mounting overlay to container:`, container.tagName, container.className, container.id);
+      this.popupRequestId += 1;
+      this.wordPopup?.hide();
       this.currentContainer = container;
 
       if (this.overlayElement && this.overlayElement.parentElement) {
@@ -46,12 +62,14 @@ export class OverlayRenderer {
       // Reset cache so it forcefully re-renders
       this.renderedText = null;
       this.renderedSettingsHash = null;
+      this.renderedTokens = null;
     } else if (!this.overlayElement || !container.contains(this.overlayElement)) {
       console.log(`[Japanese Dual Subtitle] Re-mounting overlay to container:`, container.tagName, container.className, container.id);
       this.overlayElement = this.createOverlayElement();
       container.appendChild(this.overlayElement);
       this.renderedText = null;
       this.renderedSettingsHash = null;
+      this.renderedTokens = null;
     }
   }
 
@@ -89,6 +107,9 @@ export class OverlayRenderer {
           background: rgba(255, 255, 100, 0.3);
           border-radius: 3px;
         }
+        .ja-token[data-jlpt] .ja-token-surface {
+          box-shadow: inset 0 -2px 0 var(--ja-jlpt-color);
+        }
         ruby.ja-token {
           ruby-position: over;
         }
@@ -104,6 +125,8 @@ export class OverlayRenderer {
       `;
       document.head.appendChild(style);
     }
+
+    div.addEventListener('click', this.handleTokenClick);
 
     return div;
   }
@@ -137,6 +160,7 @@ export class OverlayRenderer {
     if (textChanged) {
       this.overlayElement.innerText = text;
       this.renderedText = text;
+      this.renderedTokens = null;
     }
 
     if (settingsChanged) {
@@ -156,59 +180,78 @@ export class OverlayRenderer {
 
     if (!enabled || !tokens) {
       if (this.renderedText !== null) {
+        this.popupRequestId += 1;
+        this.wordPopup?.hide();
         this.overlayElement.style.setProperty('display', 'none', 'important');
         this.renderedText = null;
+        this.renderedTokens = null;
       }
       return;
     }
 
     const settingsHash = JSON.stringify(settings);
-    const textChanged = true; // tokens always re-render for simplicity
+    const tokensChanged = this.renderedTokens !== tokens;
     const settingsChanged = this.renderedSettingsHash !== settingsHash;
 
-    if (!settingsChanged && !textChanged) {
+    if (!settingsChanged && !tokensChanged) {
       return;
     }
 
-    const isPunctuation = (surface: string, pos?: string) => {
-      if (pos === '記号') return true;
-      return /^[、。！？「」『』（）［］【】…—\s.,!?:;'"\-_=+\/\\|~`@#$%^&*()]+$/.test(surface);
-    };
+    const nextText = tokens.map((token) => token.surface).join('');
+    if (this.renderedText !== null && this.renderedText !== nextText) {
+      this.popupRequestId += 1;
+      this.wordPopup?.hide();
+    }
 
-    // Build HTML with spans (skip interactive wrapping for punctuation)
-    const html = tokens.map((t, i) => {
-      const safeSurface = t.surface.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      
+    const fragment = document.createDocumentFragment();
+    tokens.forEach((t, i) => {
       if (isPunctuation(t.surface, t.partOfSpeech)) {
-        return `<span class="ja-punct">${safeSurface}</span>`;
+        const punctuation = document.createElement('span');
+        punctuation.className = 'ja-punct';
+        punctuation.textContent = t.surface;
+        fragment.appendChild(punctuation);
+        return;
       }
-      
-      const isFuriganaEnabled = settings.showFurigana;
-      const shouldShowFurigana = isFuriganaEnabled && hasKanji(t.surface) && t.reading && t.reading.trim() !== '';
-      
+
+      const shouldShowFurigana = settings.showFurigana && hasKanji(t.surface) && t.reading.trim() !== '';
+      const tokenElement = document.createElement(shouldShowFurigana ? 'ruby' : 'span');
+      tokenElement.className = 'ja-token';
+      tokenElement.dataset.base = t.baseForm;
+      tokenElement.dataset.reading = t.reading;
+      tokenElement.dataset.surface = t.surface;
+      tokenElement.dataset.index = String(i);
+
+      const surface = document.createElement('span');
+      surface.className = 'ja-token-surface';
+      surface.textContent = t.surface;
+      tokenElement.appendChild(surface);
+
+      if (settings.showJLPTColors && t.jlptLevel && JLPT_COLORS[t.jlptLevel]) {
+        tokenElement.dataset.jlpt = t.jlptLevel;
+        tokenElement.style.setProperty('--ja-jlpt-color', JLPT_COLORS[t.jlptLevel]);
+      }
+
       if (shouldShowFurigana) {
-        const hiraganaReading = katakanaToHiragana(t.reading);
-        return `<ruby class="ja-token" data-base="${t.baseForm}" data-reading="${t.reading}" data-surface="${t.surface}" data-index="${i}">${safeSurface}<rt>${hiraganaReading}</rt></ruby>`;
+        const reading = document.createElement('rt');
+        reading.textContent = katakanaToHiragana(t.reading);
+        tokenElement.appendChild(reading);
       }
-      
-      return `<span class="ja-token" data-base="${t.baseForm}" data-reading="${t.reading}" data-surface="${t.surface}" data-index="${i}">${safeSurface}</span>`;
-    }).join('');
-    this.overlayElement.innerHTML = html;
-    this.renderedText = html;
+
+      fragment.appendChild(tokenElement);
+    });
+    this.overlayElement.replaceChildren(fragment);
+    this.renderedTokens = tokens;
+    this.renderedText = nextText;
 
     if (settingsChanged) {
       this.applySettings(settings);
       this.renderedSettingsHash = settingsHash;
     }
 
-    // Attach click handler if not already
-    this.overlayElement.removeEventListener('click', this.handleTokenClick);
-    this.overlayElement.addEventListener('click', this.handleTokenClick);
-
     this.overlayElement.style.setProperty('display', 'block', 'important');
   }
 
-  private handleTokenClick = async (e: MouseEvent) => {
+  private handleTokenClick = (e: MouseEvent) => {
     const target = (e.target as HTMLElement).closest('.ja-token') as HTMLElement;
     if (!target) return;
     const base = target.getAttribute('data-base') || '';
@@ -220,28 +263,64 @@ export class OverlayRenderer {
       this.playerObserver.pause();
     }
     
-    if (this.dictionaryService && this.wordPopup) {
+    if (this.dictionaryService && this.jlptService && this.wordPopup) {
+      const requestId = ++this.popupRequestId;
+      const dictionaryService = this.dictionaryService;
+      const jlptService = this.jlptService;
+      const wordPopup = this.wordPopup;
+      const clickedText = this.renderedText;
+      const tokenIndex = Number(target.dataset.index);
       const rect = target.getBoundingClientRect();
       const x = rect.left + rect.width / 2;
       const y = rect.top;
+      let dictionaryReady = dictionaryService.isLoaded();
+      let entry = dictionaryReady
+        ? dictionaryService.lookup(base) || (reading ? dictionaryService.lookup(reading) : null)
+        : null;
+      let level: JLPTLevel = jlptService.isLoaded()
+        ? jlptService.lookup(base, reading, surface)
+        : null;
 
-      if (!this.dictionaryService.isLoaded()) {
-        // Show loading state immediately
-        this.wordPopup.show(null, surface, x, y, true);
-        await this.dictionaryService.ensureLoaded();
+      const isCurrent = () =>
+        requestId === this.popupRequestId &&
+        this.renderedText === clickedText &&
+        this.renderedTokens?.[tokenIndex]?.baseForm === base &&
+        this.renderedTokens?.[tokenIndex]?.reading === reading &&
+        this.renderedTokens?.[tokenIndex]?.surface === surface &&
+        !!this.overlayElement && this.overlayElement.style.display !== 'none' &&
+        wordPopup.isVisible();
+
+      const showCurrent = () => {
+        wordPopup.show(
+          entry ? { ...entry, reading: entry.reading || reading || '' } : null,
+          surface,
+          x,
+          y,
+          !dictionaryReady,
+          level,
+        );
+      };
+
+      // Show the current dictionary state immediately; each independent load can
+      // update it only while this clicked token still owns the popup.
+      showCurrent();
+
+      if (!dictionaryReady) {
+        void dictionaryService.ensureLoaded().then(() => {
+          if (!isCurrent()) return;
+          dictionaryReady = true;
+          entry = dictionaryService.lookup(base) || (reading ? dictionaryService.lookup(reading) : null);
+          showCurrent();
+        });
       }
 
-      const entry = this.dictionaryService.lookup(base) || (reading ? this.dictionaryService.lookup(reading) : null);
-      
-      this.wordPopup.show(
-        entry
-          ? { ...entry, reading: entry.reading || reading || undefined }
-          : null,
-        surface,
-        x,
-        y,
-        false
-      );
+      if (!jlptService.isLoaded()) {
+        void jlptService.ensureLoaded().then(() => {
+          if (!isCurrent()) return;
+          level = jlptService.lookup(base, reading, surface);
+          showCurrent();
+        });
+      }
     }
   };
 
@@ -298,6 +377,8 @@ export class OverlayRenderer {
   }
 
   public destroy(): void {
+    this.popupRequestId += 1;
+    this.wordPopup?.hide();
     if (this.overlayElement && this.overlayElement.parentElement) {
       this.overlayElement.parentElement.removeChild(this.overlayElement);
     }
@@ -305,5 +386,6 @@ export class OverlayRenderer {
     this.currentContainer = null;
     this.renderedText = null;
     this.renderedSettingsHash = null;
+    this.renderedTokens = null;
   }
 }

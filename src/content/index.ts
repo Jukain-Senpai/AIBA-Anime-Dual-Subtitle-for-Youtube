@@ -6,6 +6,8 @@ import { SubtitleState, SubtitleSettings } from '../types/subtitle';
 import { TokenizerService } from '../japanese/tokenizer';
 import { DictionaryService } from '../japanese/dictionary';
 import { JapaneseToken } from '../japanese/types';
+import { JLPTService } from '../japanese/jlpt';
+import { enrichTokensWithJLPT } from '../japanese/tokenEnrichment';
 
 console.log('[Japanese Dual Subtitle] Content script loaded on YouTube.');
 
@@ -21,6 +23,7 @@ const defaultSettings: SubtitleSettings = {
   lineSpacing: 1.4,
   offset: 0,
   showFurigana: true,
+  showJLPTColors: false,
 };
 
 let currentState: SubtitleState = {
@@ -34,9 +37,10 @@ const playerObserver = new YouTubePlayerObserver();
 const overlayRenderer = new OverlayRenderer();
 const tokenizerService = new TokenizerService();
 const dictionaryService = new DictionaryService();
+const jlptService = new JLPTService();
 
 // Set dependencies for interactive overlay
-overlayRenderer.setDependencies(playerObserver, dictionaryService);
+overlayRenderer.setDependencies(playerObserver, dictionaryService, jlptService);
 
 // Pre-init tokenizer in the background
 tokenizerService.init().catch(e => console.warn('[Japanese Dual Subtitle] Tokenizer pre-init failed', e));
@@ -44,6 +48,24 @@ tokenizerService.init().catch(e => console.warn('[Japanese Dual Subtitle] Tokeni
 // State for rendering and caching
 const tokenCache = new Map<string, JapaneseToken[]>();
 let currentRenderingText: string | null = null;
+
+// Existing subtitles render immediately. Once JLPT is ready, enrich cached tokens
+// once and refresh only the subtitle that is active at that moment.
+void jlptService.ensureLoaded().then(() => {
+  if (!jlptService.isLoaded()) return;
+  for (const [text, tokens] of tokenCache) {
+    tokenCache.set(text, enrichTokensWithJLPT(tokens, jlptService));
+  }
+  updateOverlay();
+});
+
+function cacheTokens(text: string, tokens: JapaneseToken[]): JapaneseToken[] {
+  const cached = jlptService.isLoaded()
+    ? enrichTokensWithJLPT(tokens, jlptService)
+    : tokens;
+  tokenCache.set(text, cached);
+  return cached;
+}
 
 // Load initial subtitle state from chrome.storage
 getSubtitleState().then((state) => {
@@ -158,17 +180,17 @@ function updateOverlay(): void {
   } else {
     // Asynchronously tokenize the new subtitle text
     tokenizerService.tokenize(text).then((tokens) => {
-      tokenCache.set(text, tokens);
+      const cachedTokens = cacheTokens(text, tokens);
       // Ensure the active text hasn't changed (e.g. from rapid seeking) while we were tokenizing
       if (currentRenderingText === text) {
-        overlayRenderer.renderTokens(tokens, enabled, currentState.settings);
+        overlayRenderer.renderTokens(cachedTokens, enabled, currentState.settings);
       }
     }).catch((e) => {
       console.warn('[Japanese Dual Subtitle] Tokenization failed, using segmenter fallback:', e);
       if (currentRenderingText === text) {
         const fallbackTokens = createFallbackTokens(text);
-        tokenCache.set(text, fallbackTokens);
-        overlayRenderer.renderTokens(fallbackTokens, enabled, currentState.settings);
+        const cachedTokens = cacheTokens(text, fallbackTokens);
+        overlayRenderer.renderTokens(cachedTokens, enabled, currentState.settings);
       }
     });
   }

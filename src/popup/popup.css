@@ -374,3 +374,52 @@ input:checked + .slider:before {
   accent-color: var(--accent-color);
   cursor: pointer;
 }
+
+.jlpt-card {
+  gap: 10px;
+}
+
+.jlpt-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.jlpt-toggle input {
+  accent-color: var(--accent-color);
+}
+
+.jlpt-toggle:focus-within {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.jlpt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.jlpt-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-main);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.jlpt-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.jlpt-note {
+  color: var(--text-muted);
+  font-size: 11px;
+}

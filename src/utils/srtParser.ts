@@ -1,4 +1,4 @@
-import { SubtitleItem } from '../types/subtitle';
+import type { SubtitleItem } from '../types/subtitle';
 
 /**
  * Parses an SRT timestamp string (e.g. "00:01:23,500" or "00:01:23.500") into seconds.

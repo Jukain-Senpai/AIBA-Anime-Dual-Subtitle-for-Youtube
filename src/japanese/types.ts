@@ -1,3 +1,5 @@
+import type { JLPTLevel } from './jlpt';
+
 export interface JapaneseToken {
   surface: string;
   reading: string;
@@ -5,6 +7,7 @@ export interface JapaneseToken {
   partOfSpeech: string;
   startIndex: number;
   endIndex: number;
+  jlptLevel?: JLPTLevel;
 }
 
 export interface DictionaryEntry {

@@ -1,4 +1,4 @@
-import { SubtitleItem } from '../types/subtitle';
+import type { SubtitleItem } from '../types/subtitle';
 
 /**
  * Subtitle Lookup Engine

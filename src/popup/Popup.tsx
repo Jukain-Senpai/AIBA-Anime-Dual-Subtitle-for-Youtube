@@ -2,6 +2,7 @@ import React, { useState, useEffect, ChangeEvent, useRef } from 'react';
 import { SubtitleState, SubtitleItem, SubtitleSettings, SubtitlePosition } from '../types/subtitle';
 import { getSubtitleState, saveSubtitleState, clearSubtitles } from '../storage/subtitleStorage';
 import { parseSRT, formatTime } from '../utils/srtParser';
+import { JLPT_COLORS, JLPT_LEVELS } from '../japanese/jlptColors';
 import './popup.css';
 
 const DEFAULT_SETTINGS: SubtitleSettings = {
@@ -16,6 +17,7 @@ const DEFAULT_SETTINGS: SubtitleSettings = {
   lineSpacing: 1.4,
   offset: 0,
   showFurigana: true,
+  showJLPTColors: false,
 };
 
 export const Popup: React.FC = () => {
@@ -313,6 +315,30 @@ export const Popup: React.FC = () => {
                 Show Furigana (Reading)
               </label>
             </div>
+          </div>
+          <div className="card jlpt-card">
+            <div className="card-title">JLPT Vocabulary Highlighting</div>
+            <label className="jlpt-toggle">
+              <input
+                type="checkbox"
+                checked={state.settings.showJLPTColors}
+                onChange={(e) => handleSettingChange('showJLPTColors', e.target.checked)}
+              />
+              Highlight vocabulary by JLPT level
+            </label>
+            <div className="jlpt-legend" aria-label="JLPT level colors">
+              {JLPT_LEVELS.map((level) => (
+                <span className="jlpt-legend-item" key={level}>
+                  <span
+                    className="jlpt-legend-dot"
+                    style={{ backgroundColor: JLPT_COLORS[level] }}
+                    aria-hidden="true"
+                  />
+                  {level}
+                </span>
+              ))}
+            </div>
+            <p className="jlpt-note">Levels are approximate.</p>
           </div>
         </div>
       )}
