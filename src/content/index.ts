@@ -8,6 +8,7 @@ import { DictionaryService } from '../japanese/dictionary';
 import { JapaneseToken } from '../japanese/types';
 import { JLPTService } from '../japanese/jlpt';
 import { enrichTokensWithJLPT } from '../japanese/tokenEnrichment';
+import { vocabularyStorageClient } from '../storage/vocabularyStorage';
 
 console.log('[Japanese Dual Subtitle] Content script loaded on YouTube.');
 
@@ -40,7 +41,7 @@ const dictionaryService = new DictionaryService();
 const jlptService = new JLPTService();
 
 // Set dependencies for interactive overlay
-overlayRenderer.setDependencies(playerObserver, dictionaryService, jlptService);
+overlayRenderer.setDependencies(playerObserver, dictionaryService, jlptService, vocabularyStorageClient);
 
 // Pre-init tokenizer in the background
 tokenizerService.init().catch(e => console.warn('[Japanese Dual Subtitle] Tokenizer pre-init failed', e));

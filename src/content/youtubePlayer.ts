@@ -1,3 +1,6 @@
+import type { VocabularySource } from '../types/vocabulary';
+import { extractYouTubeVideoId, normalizeVocabularySource } from '../vocabulary/youtubeSource.ts';
+
 /**
  * YouTube HTML5 Video Element Observer
  * Decoupled from YouTube UI internals; relies strictly on HTML5 standard video element.
@@ -69,6 +72,24 @@ export class YouTubePlayerObserver {
   /** Pauses the video playback. */
   public pause(): void {
     if (this.videoElement) this.videoElement.pause();
+  }
+
+  /** Captures only the current YouTube study context; no browsing history is collected. */
+  public getVocabularySource(subtitleText?: string): VocabularySource | undefined {
+    const videoId = extractYouTubeVideoId(window.location.href);
+    if (!videoId) return undefined;
+    const metadataTitle = document
+      .querySelector('h1.ytd-watch-metadata yt-formatted-string')
+      ?.textContent?.trim();
+    const documentTitle = document.title.replace(/\s*-\s*YouTube\s*$/i, '').trim();
+    const videoTitle = (metadataTitle || documentTitle).slice(0, 300);
+    const currentTime = this.getCurrentTime();
+    return normalizeVocabularySource({
+      videoId,
+      ...(videoTitle ? { videoTitle } : {}),
+      timestamp: Number.isFinite(currentTime) ? currentTime : 0,
+      ...(subtitleText ? { subtitleText } : {}),
+    });
   }
 
   /** Returns video parent container for overlay mounting */

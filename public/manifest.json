@@ -15,6 +15,9 @@
     "default_popup": "src/popup/index.html",
     "default_title": "Japanese Subtitle Settings"
   },
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": [

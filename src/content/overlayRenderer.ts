@@ -6,6 +6,10 @@ import { WordPopup } from './wordPopup.ts';
 import { hasKanji, katakanaToHiragana } from '../japanese/furigana.ts';
 import { JLPT_COLORS } from '../japanese/jlptColors.ts';
 import type { JLPTService, JLPTLevel } from '../japanese/jlpt';
+import type { SavedVocabulary, VocabularyDraft } from '../types/vocabulary';
+import { createVocabularyIdentity } from '../storage/vocabularyIdentity.ts';
+import type { VocabularyStorageClient } from '../storage/vocabularyStorage';
+import type { WordPopupBookmarkState } from './wordPopup.ts';
 
 function isPunctuation(surface: string, partOfSpeech: string): boolean {
   return partOfSpeech === '記号' || /^[\p{P}\p{S}\s]+$/u.test(surface);
@@ -25,8 +29,11 @@ export class OverlayRenderer {
   private playerObserver: YouTubePlayerObserver | null = null;
   private dictionaryService: DictionaryService | null = null;
   private jlptService: JLPTService | null = null;
+  private vocabularyStorage: VocabularyStorageClient | null = null;
   private wordPopup: WordPopup | null = null;
   private popupRequestId = 0;
+  private unsubscribeVocabulary: (() => void) | null = null;
+  private refreshActiveBookmark: ((entries: SavedVocabulary[], error: string | null) => void) | null = null;
 
   constructor() {}
 
@@ -37,11 +44,17 @@ export class OverlayRenderer {
     observer: YouTubePlayerObserver,
     dictService: DictionaryService,
     jlptService: JLPTService,
+    vocabularyStorage: VocabularyStorageClient,
   ): void {
     this.playerObserver = observer;
     this.dictionaryService = dictService;
     this.jlptService = jlptService;
+    this.vocabularyStorage = vocabularyStorage;
     this.wordPopup = new WordPopup();
+    this.unsubscribeVocabulary?.();
+    this.unsubscribeVocabulary = vocabularyStorage.subscribe(({ entries, error }) => {
+      this.refreshActiveBookmark?.(entries, error?.message ?? null);
+    });
   }
 
   public mount(container: HTMLElement): void {
@@ -263,12 +276,15 @@ export class OverlayRenderer {
       this.playerObserver.pause();
     }
     
-    if (this.dictionaryService && this.jlptService && this.wordPopup) {
+    if (this.playerObserver && this.dictionaryService && this.jlptService && this.wordPopup && this.vocabularyStorage) {
       const requestId = ++this.popupRequestId;
       const dictionaryService = this.dictionaryService;
       const jlptService = this.jlptService;
       const wordPopup = this.wordPopup;
+      const vocabularyStorage = this.vocabularyStorage;
+      const playerObserver = this.playerObserver;
       const clickedText = this.renderedText;
+      const source = playerObserver.getVocabularySource(clickedText ?? undefined);
       const tokenIndex = Number(target.dataset.index);
       const rect = target.getBoundingClientRect();
       const x = rect.left + rect.width / 2;
@@ -280,6 +296,10 @@ export class OverlayRenderer {
       let level: JLPTLevel = jlptService.isLoaded()
         ? jlptService.lookup(base, reading, surface)
         : null;
+      let isSaved = false;
+      let bookmarkPending = true;
+      let bookmarkError: string | null = null;
+      let bookmarkOperationId = 0;
 
       const isCurrent = () =>
         requestId === this.popupRequestId &&
@@ -290,7 +310,57 @@ export class OverlayRenderer {
         !!this.overlayElement && this.overlayElement.style.display !== 'none' &&
         wordPopup.isVisible();
 
+      const getBookmarkIdentity = () => createVocabularyIdentity({
+        expression: entry?.expression || base,
+        reading: entry?.reading || reading,
+        surface,
+      });
+
+      const createDraft = (): VocabularyDraft => ({
+        expression: entry?.expression || base,
+        reading: entry?.reading || reading,
+        baseForm: base,
+        surface,
+        meanings: entry?.meanings ? [...entry.meanings] : [],
+        partOfSpeech: entry?.partOfSpeech ? [...entry.partOfSpeech] : [],
+        jlptLevel: level,
+        source: source ? { ...source } : undefined,
+      });
+
+      const toggleBookmark = () => {
+        if (bookmarkPending || !isCurrent()) return;
+        const operationId = ++bookmarkOperationId;
+        const identity = getBookmarkIdentity();
+        const draft = createDraft();
+        const removing = isSaved;
+        bookmarkPending = true;
+        bookmarkError = null;
+        showCurrent();
+
+        const operation = removing
+          ? vocabularyStorage.remove(identity.id).then(() => null)
+          : vocabularyStorage.save(draft);
+
+        void operation.then(() => {
+          if (!isCurrent() || operationId !== bookmarkOperationId) return;
+          isSaved = !removing;
+          bookmarkPending = false;
+          showCurrent();
+        }).catch((error: unknown) => {
+          if (!isCurrent() || operationId !== bookmarkOperationId) return;
+          bookmarkPending = false;
+          bookmarkError = error instanceof Error ? error.message : 'Unable to update saved vocabulary.';
+          showCurrent();
+        });
+      };
+
       const showCurrent = () => {
+        const bookmark: WordPopupBookmarkState = {
+          isSaved,
+          pending: bookmarkPending,
+          error: bookmarkError,
+          onToggle: toggleBookmark,
+        };
         wordPopup.show(
           entry ? { ...entry, reading: entry.reading || reading || '' } : null,
           surface,
@@ -298,12 +368,45 @@ export class OverlayRenderer {
           y,
           !dictionaryReady,
           level,
+          bookmark,
         );
+      };
+
+      const refreshSavedStatus = () => {
+        if (!dictionaryReady || !isCurrent()) return;
+        const operationId = ++bookmarkOperationId;
+        const identity = getBookmarkIdentity();
+        bookmarkPending = true;
+        bookmarkError = null;
+        showCurrent();
+        void vocabularyStorage.isSaved(identity.expression, identity.reading, identity.surface).then((saved) => {
+          if (!isCurrent() || operationId !== bookmarkOperationId) return;
+          isSaved = saved;
+          bookmarkPending = false;
+          showCurrent();
+        }).catch((error: unknown) => {
+          if (!isCurrent() || operationId !== bookmarkOperationId) return;
+          bookmarkPending = false;
+          bookmarkError = error instanceof Error ? error.message : 'Unable to check saved vocabulary.';
+          showCurrent();
+        });
+      };
+
+      this.refreshActiveBookmark = (entries, error) => {
+        if (!isCurrent()) return;
+        if (error) {
+          bookmarkError = error;
+        } else {
+          isSaved = entries.some((savedEntry) => savedEntry.id === getBookmarkIdentity().id);
+          bookmarkError = null;
+        }
+        showCurrent();
       };
 
       // Show the current dictionary state immediately; each independent load can
       // update it only while this clicked token still owns the popup.
       showCurrent();
+      if (dictionaryReady) refreshSavedStatus();
 
       if (!dictionaryReady) {
         void dictionaryService.ensureLoaded().then(() => {
@@ -311,6 +414,7 @@ export class OverlayRenderer {
           dictionaryReady = true;
           entry = dictionaryService.lookup(base) || (reading ? dictionaryService.lookup(reading) : null);
           showCurrent();
+          refreshSavedStatus();
         });
       }
 
@@ -378,7 +482,11 @@ export class OverlayRenderer {
 
   public destroy(): void {
     this.popupRequestId += 1;
-    this.wordPopup?.hide();
+    this.refreshActiveBookmark = null;
+    this.unsubscribeVocabulary?.();
+    this.unsubscribeVocabulary = null;
+    this.wordPopup?.destroy();
+    this.wordPopup = null;
     if (this.overlayElement && this.overlayElement.parentElement) {
       this.overlayElement.parentElement.removeChild(this.overlayElement);
     }

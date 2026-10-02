@@ -2,6 +2,13 @@ import type { DictionaryEntry } from '../japanese/types';
 import type { JLPTLevel } from '../japanese/jlpt';
 import { JLPT_COLORS } from '../japanese/jlptColors.ts';
 
+export interface WordPopupBookmarkState {
+  isSaved: boolean;
+  pending: boolean;
+  error: string | null;
+  onToggle: () => void;
+}
+
 /**
  * Simple floating popup for dictionary entries.
  * Used in the content script overlay. It creates a single DOM element that is reused.
@@ -10,6 +17,7 @@ export class WordPopup {
   private popupEl: HTMLDivElement | null = null;
   private outsideClickHandler: ((e: MouseEvent) => void) | null = null;
   private escapeKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private expandedMeaningsKey: string | null = null;
 
   constructor() {
     this.createElement();
@@ -29,6 +37,8 @@ export class WordPopup {
     div.style.setProperty('font-family', 'Inter, sans-serif', 'important');
     div.style.setProperty('font-size', '14px', 'important');
     div.style.setProperty('max-width', '300px', 'important');
+    div.style.setProperty('max-height', 'calc(100vh - 20px)', 'important');
+    div.style.setProperty('overflow-y', 'auto', 'important');
     div.style.setProperty('z-index', '2147483647', 'important');
     div.style.setProperty('pointer-events', 'auto', 'important');
     div.style.setProperty('display', 'none', 'important');
@@ -82,6 +92,7 @@ export class WordPopup {
     y: number,
     isLoading: boolean = false,
     jlptLevel: JLPTLevel = null,
+    bookmark?: WordPopupBookmarkState,
   ): void {
     if (!this.popupEl) return;
 
@@ -127,18 +138,80 @@ export class WordPopup {
         const pos = this.element('div', 'font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#9cdcfe;margin-bottom:6px', entry.partOfSpeech.join(', '));
         content.appendChild(pos);
       }
-      entry.meanings.slice(0, 6).forEach((meaning, index) => {
-        const row = this.element('div', 'margin-bottom:4px');
-        row.appendChild(this.element('span', 'color:#888;font-size:12px;margin-right:4px', `${index + 1}.`));
-        row.appendChild(document.createTextNode(meaning));
-        content.appendChild(row);
-      });
-      if (entry.meanings.length > 6) {
-        content.appendChild(this.element('div', 'color:#666;font-size:12px;margin-top:4px', `+ ${entry.meanings.length - 6} more`));
-      }
+      const meaningsKey = `${entry.expression}\u0000${entry.reading}`;
+      const meaningsList = this.element('div', '');
+      meaningsList.className = 'ja-word-popup-meanings';
+      const renderMeanings = () => {
+        const expanded = this.expandedMeaningsKey === meaningsKey;
+        const visibleMeanings = expanded ? entry.meanings : entry.meanings.slice(0, 6);
+        const meaningChildren: HTMLElement[] = visibleMeanings.map((meaning, index) => {
+          const row = this.element('div', 'margin-bottom:4px');
+          row.appendChild(this.element('span', 'color:#888;font-size:12px;margin-right:4px', `${index + 1}.`));
+          row.appendChild(document.createTextNode(meaning));
+          return row;
+        });
+        if (entry.meanings.length > 6) {
+          const toggle = this.element(
+            'button',
+            'display:block;margin-top:5px;padding:3px 0;border:0;background:none;color:#93c5fd;font:600 12px Inter,sans-serif;cursor:pointer',
+            expanded ? 'Show fewer' : `+ ${entry.meanings.length - 6} more`,
+          );
+          toggle.type = 'button';
+          toggle.className = 'ja-word-popup-meanings-toggle';
+          toggle.setAttribute('aria-expanded', String(expanded));
+          toggle.addEventListener('click', () => {
+            this.expandedMeaningsKey = expanded ? null : meaningsKey;
+            renderMeanings();
+          });
+          meaningChildren.push(toggle);
+        }
+        meaningsList.style.maxHeight = expanded ? '230px' : 'none';
+        meaningsList.style.overflowY = expanded ? 'auto' : 'visible';
+        meaningsList.style.paddingRight = expanded ? '5px' : '0';
+        meaningsList.replaceChildren(...meaningChildren);
+      };
+      renderMeanings();
+      content.appendChild(meaningsList);
     }
 
-    this.popupEl.replaceChildren(header, content);
+    const children: HTMLElement[] = [header, content];
+    if (bookmark) {
+      const bookmarkArea = this.element('div', 'border-top:1px solid rgba(255,255,255,0.12);margin-top:12px;padding-top:10px');
+      const bookmarkButton = this.element(
+        'button',
+        'width:100%;display:flex;align-items:center;justify-content:center;gap:7px;min-height:34px;padding:7px 10px;border:1px solid rgba(96,165,250,0.55);border-radius:6px;background:rgba(59,130,246,0.14);color:#dbeafe;font:600 13px Inter,sans-serif;cursor:pointer',
+      );
+      bookmarkButton.type = 'button';
+      bookmarkButton.className = 'ja-word-popup-bookmark';
+      bookmarkButton.disabled = bookmark.pending;
+      bookmarkButton.setAttribute('aria-pressed', String(bookmark.isSaved));
+      bookmarkButton.setAttribute(
+        'aria-label',
+        bookmark.pending ? 'Updating saved vocabulary' : bookmark.isSaved ? 'Remove saved vocabulary' : 'Save vocabulary',
+      );
+      bookmarkButton.style.opacity = bookmark.pending ? '0.65' : '1';
+      bookmarkButton.style.cursor = bookmark.pending ? 'wait' : 'pointer';
+      const icon = bookmark.pending ? '…' : bookmark.isSaved ? '★' : '☆';
+      const label = bookmark.pending ? 'Updating…' : bookmark.isSaved ? 'Saved' : 'Save Word';
+      bookmarkButton.append(
+        this.element('span', 'font-size:17px;line-height:1', icon),
+        this.element('span', '', label),
+      );
+      bookmarkButton.addEventListener('click', () => {
+        if (!bookmark.pending) bookmark.onToggle();
+      });
+      bookmarkArea.appendChild(bookmarkButton);
+
+      if (bookmark.error) {
+        const error = this.element('div', 'margin-top:7px;color:#fca5a5;font-size:12px;line-height:1.35', bookmark.error);
+        error.className = 'ja-word-popup-bookmark-error';
+        error.setAttribute('role', 'status');
+        bookmarkArea.appendChild(error);
+      }
+      children.push(bookmarkArea);
+    }
+
+    this.popupEl.replaceChildren(...children);
 
     // Reset styles for measurement
     this.popupEl.style.display = 'block';
@@ -162,6 +235,9 @@ export class WordPopup {
     if (finalY < padding) {
       finalY = y + 30; // approx height of the word plus some space
     }
+    if (finalY + rect.height > window.innerHeight - padding) {
+      finalY = Math.max(padding, window.innerHeight - rect.height - padding);
+    }
 
     this.popupEl.style.left = `${finalX}px`;
     this.popupEl.style.top = `${finalY}px`;
@@ -171,6 +247,7 @@ export class WordPopup {
     if (this.popupEl) {
       this.popupEl.style.display = 'none';
     }
+    this.expandedMeaningsKey = null;
   }
 
   public destroy(): void {

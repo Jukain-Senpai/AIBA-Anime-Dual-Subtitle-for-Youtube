@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { getSubtitleState, onSubtitleStateChange, saveSubtitleState } from '../src/storage/subtitleStorage.ts';
+import { clearSubtitles, getSubtitleState, onSubtitleStateChange, saveSubtitleState } from '../src/storage/subtitleStorage.ts';
 
 test('old stored settings gain the disabled JLPT default without losing subtitles', async () => {
   const previousChrome = globalThis.chrome;
@@ -48,6 +48,47 @@ test('old stored settings gain the disabled JLPT default without losing subtitle
     assert.equal(updated.settings.showJLPTColors, true);
     assert.equal(updated.subtitles[0].text, '学生');
     assert.equal((await getSubtitleState()).settings.showJLPTColors, true);
+  } finally {
+    Object.assign(globalThis, { chrome: previousChrome });
+  }
+});
+
+test('clearing subtitles never modifies independently stored vocabulary', async () => {
+  const previousChrome = globalThis.chrome;
+  const storageRecord: Record<string, unknown> = {
+    ja_dual_subtitle_state: {
+      filename: 'lesson.srt',
+      subtitles: [{ id: 1, startTime: 0, endTime: 2, text: '学生' }],
+      enabled: true,
+      settings: { showFurigana: true },
+    },
+    aiba_saved_vocabulary_v1: {
+      schemaVersion: 1,
+      entries: { preserved: { id: 'preserved', expression: '学生' } },
+    },
+  };
+  const originalVocabulary = structuredClone(storageRecord.aiba_saved_vocabulary_v1);
+  const chromeMock = {
+    storage: {
+      local: {
+        get(keys: string[], callback: (result: Record<string, unknown>) => void) {
+          callback(Object.fromEntries(keys.map((key) => [key, storageRecord[key]])));
+        },
+        set(value: Record<string, unknown>, callback: () => void) {
+          Object.assign(storageRecord, value);
+          callback();
+        },
+      },
+      onChanged: { addListener() {}, removeListener() {} },
+    },
+  };
+  Object.assign(globalThis, { chrome: chromeMock });
+
+  try {
+    const cleared = await clearSubtitles();
+    assert.equal(cleared.filename, '');
+    assert.deepEqual(cleared.subtitles, []);
+    assert.deepEqual(storageRecord.aiba_saved_vocabulary_v1, originalVocabulary);
   } finally {
     Object.assign(globalThis, { chrome: previousChrome });
   }

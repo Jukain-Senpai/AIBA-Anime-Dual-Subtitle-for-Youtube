@@ -39,6 +39,21 @@ async function runBuild() {
     },
   });
 
+  console.log('[Build] Building Background Service Worker...');
+  await build({
+    configFile: false,
+    build: {
+      outDir: 'dist',
+      emptyOutDir: false,
+      lib: {
+        entry: resolve(rootDir, 'src/background/index.ts'),
+        name: 'AibaBackground',
+        formats: ['iife'],
+        fileName: () => 'background.js',
+      },
+    },
+  });
+
   console.log('[Build] Extension build complete!');
 }
 

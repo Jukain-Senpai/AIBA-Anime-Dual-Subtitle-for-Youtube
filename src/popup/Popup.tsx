@@ -3,6 +3,7 @@ import { SubtitleState, SubtitleItem, SubtitleSettings, SubtitlePosition } from 
 import { getSubtitleState, saveSubtitleState, clearSubtitles } from '../storage/subtitleStorage';
 import { parseSRT, formatTime } from '../utils/srtParser';
 import { JLPT_COLORS, JLPT_LEVELS } from '../japanese/jlptColors';
+import { SavedVocabularyView } from './SavedVocabularyView';
 import './popup.css';
 
 const DEFAULT_SETTINGS: SubtitleSettings = {
@@ -21,6 +22,7 @@ const DEFAULT_SETTINGS: SubtitleSettings = {
 };
 
 export const Popup: React.FC = () => {
+  const [activeView, setActiveView] = useState<'settings' | 'vocabulary'>('settings');
   const [state, setState] = useState<SubtitleState>({
     filename: '',
     subtitles: [],
@@ -131,17 +133,45 @@ export const Popup: React.FC = () => {
       <div className="header">
         <div className="title-group">
           <span className="title-icon">🇯🇵</span>
-          <h1>Japanese Subtitles</h1>
+          <div>
+            <h1>AIBA</h1>
+            <span className="title-subtitle">Japanese learning companion</span>
+          </div>
         </div>
-        <label className="toggle-switch" title="Toggle Japanese Subtitles">
+        {activeView === 'settings' && <label className="toggle-switch" title="Toggle Japanese Subtitles">
           <input
             type="checkbox"
             checked={state.enabled}
             onChange={handleToggleEnabled}
           />
           <span className="slider"></span>
-        </label>
+        </label>}
       </div>
+
+      <nav className="popup-tabs" role="tablist" aria-label="AIBA sections">
+        <button
+          id="subtitle-settings-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeView === 'settings'}
+          className={activeView === 'settings' ? 'popup-tab popup-tab-active' : 'popup-tab'}
+          onClick={() => setActiveView('settings')}
+        >
+          Subtitle Settings
+        </button>
+        <button
+          id="saved-vocabulary-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeView === 'vocabulary'}
+          className={activeView === 'vocabulary' ? 'popup-tab popup-tab-active' : 'popup-tab'}
+          onClick={() => setActiveView('vocabulary')}
+        >
+          Saved Vocabulary
+        </button>
+      </nav>
+
+      {activeView === 'settings' ? <>
 
       {/* SRT File Upload Area */}
       {state.subtitles.length === 0 ? (
@@ -346,6 +376,7 @@ export const Popup: React.FC = () => {
       <div className="footer-text">
         Works seamlessly on all YouTube videos
       </div>
+      </> : <SavedVocabularyView />}
     </div>
   );
 };
